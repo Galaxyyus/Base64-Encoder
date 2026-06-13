@@ -50,9 +50,11 @@ const std::unordered_map<char, int> BASE64_DECODE = {
 	{'=', 0}
 };
 
+// Converts a vector of bytes to its corresponding base64 string
 std::string base64_encode(const std::vector<std::uint8_t>& input) {
 	std::stringstream result;
 
+	// Extracts 3 bytes from input if available then convert to 4 base64 characters
 	std::size_t i = 0;
 	while (i < input.size()) {
 		std::uint32_t a = input[i++];
@@ -62,13 +64,14 @@ std::string base64_encode(const std::vector<std::uint8_t>& input) {
 		std::uint32_t bytes = (a << 16) | (b << 8) | c;
 
 		for (int i = 3; i >= 0; i--) {
-			std::uint8_t bitset = (bytes >> (6 * i)) & 0b00111111;
+			std::uint8_t bitset = (bytes >> (6 * i)) & 0b00111111; // Bit map to take least significant 6 bits
 			result << BASE64_ENCODE[bitset];
 		}
 	}
 
 	std::string b64_string = result.str();
 
+	// Remove the last characters and add = depending on input length
 	if (input.size() % 3 == 1) {
 		b64_string = b64_string.substr(0, b64_string.size() - 2) + "==";
 	} else if (input.size() % 3 == 2) {
@@ -78,21 +81,26 @@ std::string base64_encode(const std::vector<std::uint8_t>& input) {
 	return b64_string;
 }
 
+// Convert a base64 string to its corresponding bytes and returns a vector
 std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
 	std::vector<uint8_t> result;
 
+	// Read 4 characters from the base64 string and convert to 3 corresponding decoded bytes
 	for (std::size_t i = 0; i < b64_string.size(); i += 4) {
+		// Read 4 6 bit bytes
 		std::uint32_t bytes = 0;
 		for (std::size_t j = 0; j < 4; j++) {
-			bytes = (bytes << 6) | (BASE64_DECODE.at(b64_string[i + j]) & 0b00111111);
+			bytes = (bytes << 6) | (BASE64_DECODE.at(b64_string[i + j]) & 0b00111111); // Extract only 6 bits
 		}
 
+		// Extract the real decoded bytes
 		for (int j = 2; j >= 0; j--) {
 			uint8_t bitset = (bytes >> (8 * j)) & 0b11111111;
 			result.push_back(bitset);
 		}
 	}
 
+	// Remove the last bytes depending on number of =
 	if (b64_string.substr(b64_string.size() - 2) == "==") {
 		result.pop_back();
 		result.pop_back();
@@ -104,6 +112,7 @@ std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
 }
 
 int main(int argc, char* argv[]) {
+	// Help for invalid inputs
 	if (argc < 3) {
 		std::cout << "Invalid Input!!!\n\n";
 		std::cout << "Usage: b64.exe <OPTIONS> <INPUT> [FLAGS...]\n\n";
@@ -121,6 +130,7 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
+	// Check if there is an -e or -d
 	std::string option = argv[1];
 	if (option != "-e" && option != "--encode" && option != "-d" && option != "--decode") {
 		std::cout << "Unknown option: " << option << '\n';
