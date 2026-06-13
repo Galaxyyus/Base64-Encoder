@@ -116,8 +116,8 @@ int main(int argc, char* argv[]) {
 		std::cout << "\nExamples:\n";
 		std::cout << "\tb64.exe -e \"Hello World\"\n";
 		std::cout << "\tb64.exe -e -f input.png -o output.txt\n";
-		std::cout << "\tb64.exe -d SGVsbG8gV29ybGQ=\n";
-		std::cout << "\tb64.exe -d -f encoded.txt -o decoded.png\n";
+		std::cout << "\tb64.exe -d SGVsbG8gV29ybGQ=\n -o output.txt";
+		std::cout << "\tb64.exe -d -f encoded.txt\n";
 		return 0;
 	}
 
