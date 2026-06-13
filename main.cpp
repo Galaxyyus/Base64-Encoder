@@ -55,9 +55,9 @@ std::string base64_encode(const std::vector<char>& input) {
 
 	std::size_t i = 0;
 	while (i < input.size()) {
-		std::uint32_t a = static_cast<std::uint32_t>(input[i++]);
-		std::uint32_t b = (i < input.size()) ? static_cast<std::uint32_t>(input[i++]) : 0;
-		std::uint32_t c = (i < input.size()) ? static_cast<std::uint32_t>(input[i++]) : 0;
+		std::uint32_t a = static_cast<std::uint8_t>(input[i++]);
+		std::uint32_t b = (i < input.size()) ? static_cast<std::uint8_t>(input[i++]) : 0;
+		std::uint32_t c = (i < input.size()) ? static_cast<std::uint8_t>(input[i++]) : 0;
 
 		std::uint32_t bytes = (a << 16) | (b << 8) | c;
 
@@ -78,8 +78,8 @@ std::string base64_encode(const std::vector<char>& input) {
 	return b64_string;
 }
 
-std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
-	std::vector<std::uint8_t> result;
+std::vector<char> base64_decode(const std::string& b64_string) {
+	std::vector<char> result;
 
 	for (std::size_t i = 0; i < b64_string.size(); i += 4) {
 		std::uint32_t bytes = 0;
@@ -88,7 +88,7 @@ std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
 		}
 
 		for (int j = 2; j >= 0; j--) {
-			std::uint8_t bitset = (bytes >> (8 * j)) & 0b11111111;
+			char bitset = (bytes >> (8 * j)) & 0b11111111;
 			result.push_back(bitset);
 		}
 	}
@@ -126,7 +126,12 @@ int main(int argc, char* argv[]) {
 
 		std::ofstream("base64.txt", std::ios::trunc) << b64_string;
 	} else if (option == "-d" || option == "--decode") {
+		std::string b64_string;
+		std::ifstream(argv[2]) >> b64_string;
 
+		std::vector<char> output_data = base64_decode(b64_string);
+
+		std::ofstream("converted.png", std::ios::binary).write(output_data.data(), output_data.size());
 	} else {
 		std::cout << "Unknown option: " << option << '\n';
 		return 1;
