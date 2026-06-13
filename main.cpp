@@ -50,14 +50,14 @@ const std::unordered_map<char, int> BASE64_DECODE = {
 	{'=', 0}
 };
 
-std::string base64_encode(const std::vector<char>& input) {
+std::string base64_encode(const std::vector<std::uint8_t>& input) {
 	std::stringstream result;
 
 	std::size_t i = 0;
 	while (i < input.size()) {
-		std::uint32_t a = static_cast<std::uint8_t>(input[i++]);
-		std::uint32_t b = (i < input.size()) ? static_cast<std::uint8_t>(input[i++]) : 0;
-		std::uint32_t c = (i < input.size()) ? static_cast<std::uint8_t>(input[i++]) : 0;
+		std::uint32_t a = input[i++];
+		std::uint32_t b = (i < input.size()) ? input[i++] : 0;
+		std::uint32_t c = (i < input.size()) ? input[i++] : 0;
 
 		std::uint32_t bytes = (a << 16) | (b << 8) | c;
 
@@ -78,8 +78,8 @@ std::string base64_encode(const std::vector<char>& input) {
 	return b64_string;
 }
 
-std::vector<char> base64_decode(const std::string& b64_string) {
-	std::vector<char> result;
+std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
+	std::vector<uint8_t> result;
 
 	for (std::size_t i = 0; i < b64_string.size(); i += 4) {
 		std::uint32_t bytes = 0;
@@ -88,7 +88,7 @@ std::vector<char> base64_decode(const std::string& b64_string) {
 		}
 
 		for (int j = 2; j >= 0; j--) {
-			char bitset = (bytes >> (8 * j)) & 0b11111111;
+			uint8_t bitset = (bytes >> (8 * j)) & 0b11111111;
 			result.push_back(bitset);
 		}
 	}
@@ -106,35 +106,141 @@ std::vector<char> base64_decode(const std::string& b64_string) {
 int main(int argc, char* argv[]) {
 	if (argc < 3) {
 		std::cout << "Invalid Input!!!\n\n";
-		std::cout << "Usage: b64.exe <OPTIONS> <STRING>\n\n";
+		std::cout << "Usage: b64.exe <OPTIONS> <INPUT> [FLAGS...]\n\n";
 		std::cout << "Options:\n";
 		std::cout << "\t-e, --encode\tEncode a string to its Base64 equivalent\n";
 		std::cout << "\t-d, --decode\tDecode a Base64 string to its ASCII equivalent\n";
-		std::cout << "\nInput: Only valid C++ readable strings accepted. Input them as ASCII or Base64 as per requirement";
+		std::cout << "\nFlags:\n";
+		std::cout << "\t-f <path>\tRead input from a file instead of a command-line string\n";
+		std::cout << "\t-o <path>\tWrite output to a file instead of stdout\n";
+		std::cout << "\nExamples:\n";
+		std::cout << "\tb64.exe -e \"Hello World\"\n";
+		std::cout << "\tb64.exe -e -f input.png -o output.txt\n";
+		std::cout << "\tb64.exe -d SGVsbG8gV29ybGQ=\n";
+		std::cout << "\tb64.exe -d -f encoded.txt -o decoded.png\n";
 		return 0;
 	}
 
 	std::string option = argv[1];
-	if (option == "-e" || option == "--encode") {
-		std::ifstream file(argv[2], std::ios::binary | std::ios::ate);
-		std::fstream::pos_type file_length = file.tellg();
-		std::vector<char> input(file_length);
-		file.seekg(0);
-		file.read(input.data(), file_length);
+	if (option != "-e" && option != "--encode" && option != "-d" && option != "--decode") {
+		std::cout << "Unknown option: " << option << '\n';
+		return 1;
+	}
+
+	bool is_encode = (option == "-e" || option == "--encode");
+
+	std::string input_file, output_file, inline_input;
+
+	// Parse remaining flags
+	for (int i = 2; i < argc; i++) {
+		std::string arg = argv[i];
+		if (arg == "-f") {
+			if (i + 1 >= argc) {
+				std::cout << "Error: -f requires a file path argument\n";
+				return 1;
+			}
+			input_file = argv[++i];
+		} else if (arg == "-o") {
+			if (i + 1 >= argc) {
+				std::cout << "Error: -o requires a file path argument\n";
+				return 1;
+			}
+			output_file = argv[++i];
+		} else if (arg[0] != '-') {
+			if (!inline_input.empty()) {
+				std::cout << "Error: multiple inline inputs provided\n";
+				return 1;
+			}
+			inline_input = arg;
+		} else {
+			std::cout << "Unknown flag: " << arg << '\n';
+			return 1;
+		}
+	}
+
+	// Both and neither input file and inline input provided
+	if (!input_file.empty() && !inline_input.empty()) {
+		std::cout << "Error: cannot use both -f and an inline input string\n";
+		return 1;
+	}
+	if (input_file.empty() && inline_input.empty()) {
+		std::cout << "Error: no input provided. Use -f <path> or pass a string directly\n";
+		return 1;
+	}
+
+	// Handle encode operations
+	if (is_encode) {
+		std::vector<std::uint8_t> input;
+
+		// Read from input_file
+		if (!input_file.empty()) {
+			std::ifstream file(input_file, std::ios::binary | std::ios::ate);
+			if (!file) { // Could not open file
+				std::cout << "Error: could not open file: " << input_file << '\n';
+				return 1;
+			}
+
+			// Create a vector and read from file
+			std::fstream::pos_type file_length = file.tellg();
+			input.resize(file_length);
+			file.seekg(0);
+			file.read(reinterpret_cast<char*>(input.data()), file_length);
+		}
+		// Read from inline_input
+		else {
+			input.assign(inline_input.begin(), inline_input.end());
+		}
 
 		std::string b64_string = base64_encode(input);
 
-		std::ofstream("base64.txt", std::ios::trunc) << b64_string;
-	} else if (option == "-d" || option == "--decode") {
-		std::string b64_string;
-		std::ifstream(argv[2]) >> b64_string;
+		// Write to output_file
+		if (!output_file.empty()) {
+			std::ofstream out(output_file, std::ios::trunc);
+			if (!out) {
+				std::cout << "Error: could not open output file: " << output_file << '\n';
+				return 1;
+			}
+			out << b64_string;
+		}
+		// Write to stdout
+		else {
+			std::cout << b64_string << '\n';
+		}
 
-		std::vector<char> output_data = base64_decode(b64_string);
-
-		std::ofstream("converted.png", std::ios::binary).write(output_data.data(), output_data.size());
+		// Handle decode operations
 	} else {
-		std::cout << "Unknown option: " << option << '\n';
-		return 1;
+		std::string b64_string;
+
+		// Read from input_file
+		if (!input_file.empty()) {
+			std::ifstream file(input_file);
+			if (!file) {
+				std::cout << "Error: could not open file: " << input_file << '\n';
+				return 1;
+			}
+			file >> b64_string;
+		}
+		// Read from inline_input
+		else {
+			b64_string = inline_input;
+		}
+
+		std::vector<std::uint8_t> output_data = base64_decode(b64_string);
+
+		// Write to output_file
+		if (!output_file.empty()) {
+			std::ofstream out(output_file, std::ios::binary);
+			if (!out) {
+				std::cout << "Error: could not open output file: " << output_file << '\n';
+				return 1;
+			}
+			out.write(reinterpret_cast<char*>(output_data.data()), output_data.size());
+		}
+		// Write to stdout
+		else {
+			std::cout.write(reinterpret_cast<char*>(output_data.data()), output_data.size());
+			std::cout << '\n';
+		}
 	}
 
 	return 0;
