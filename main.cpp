@@ -1,5 +1,6 @@
 #include <iostream>
 #include <ios>
+#include <fstream>
 #include <string>
 #include <sstream>
 #include <cstdint>
@@ -49,7 +50,7 @@ const std::unordered_map<char, int> BASE64_DECODE = {
 	{'=', 0}
 };
 
-std::string base64_encode(std::string input) {
+std::string base64_encode(const std::vector<char>& input) {
 	std::stringstream result;
 
 	std::size_t i = 0;
@@ -69,19 +70,16 @@ std::string base64_encode(std::string input) {
 	std::string b64_string = result.str();
 
 	if (input.size() % 3 == 1) {
-		b64_string.pop_back();
-		b64_string.pop_back();
-		return b64_string + "==";
+		b64_string = b64_string.substr(0, b64_string.size() - 2) + "==";
 	} else if (input.size() % 3 == 2) {
-		b64_string.pop_back();
-		return b64_string + "=";
-	} else {
-		return b64_string;
+		b64_string = b64_string.substr(0, b64_string.size() - 1) + "=";
 	}
+
+	return b64_string;
 }
 
-std::string base64_decode(std::string b64_string) {
-	std::stringstream result;
+std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
+	std::vector<std::uint8_t> result;
 
 	for (std::size_t i = 0; i < b64_string.size(); i += 4) {
 		std::uint32_t bytes = 0;
@@ -91,19 +89,18 @@ std::string base64_decode(std::string b64_string) {
 
 		for (int j = 2; j >= 0; j--) {
 			std::uint8_t bitset = (bytes >> (8 * j)) & 0b11111111;
-			result << static_cast<char>(bitset);
+			result.push_back(bitset);
 		}
 	}
 
-	std::string output_string = result.str();
 	if (b64_string.substr(b64_string.size() - 2) == "==") {
-		output_string.pop_back();
-		output_string.pop_back();
+		result.pop_back();
+		result.pop_back();
 	} else if (b64_string.substr(b64_string.size() - 1) == "=") {
-		output_string.pop_back();
+		result.pop_back();
 	}
 
-	return output_string;
+	return result;
 }
 
 int main(int argc, char* argv[]) {
@@ -119,9 +116,17 @@ int main(int argc, char* argv[]) {
 
 	std::string option = argv[1];
 	if (option == "-e" || option == "--encode") {
-		std::cout << base64_encode(argv[2]);
+		std::ifstream file(argv[2], std::ios::binary | std::ios::ate);
+		std::fstream::pos_type file_length = file.tellg();
+		std::vector<char> input(file_length);
+		file.seekg(0);
+		file.read(input.data(), file_length);
+
+		std::string b64_string = base64_encode(input);
+
+		std::ofstream("base64.txt", std::ios::trunc) << b64_string;
 	} else if (option == "-d" || option == "--decode") {
-		std::cout << base64_decode(argv[2]);
+
 	} else {
 		std::cout << "Unknown option: " << option << '\n';
 		return 1;

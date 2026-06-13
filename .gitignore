@@ -1,3 +1,6 @@
 *.o
 *.exe
+*.txt
+*.png
 .vscode/
+test.cpp
