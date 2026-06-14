@@ -20,10 +20,10 @@ Pre-compiled Windows binaries are available on the [Releases page](../../release
 
 ## Building
 
-Requires a C++11-compatible compiler (e.g. `g++` or `clang++`).
+Requires a C++17-compatible compiler (e.g. `g++` or `clang++`).
 
 ```bash
-g++ -std=c++11 -o b64 b64.cpp
+g++ -std=c++17 -o b64 b64.cpp
 ```
 
 ---
