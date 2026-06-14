@@ -13,6 +13,11 @@ A lightweight command-line tool for encoding and decoding Base64, written in C++
 
 ---
 
+## Download
+Pre-compiled Windows binaries are available on the [Releases page](../../releases).
+
+---
+
 ## Building
 
 Requires a C++11-compatible compiler (e.g. `g++` or `clang++`).
