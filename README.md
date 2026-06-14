@@ -23,7 +23,7 @@ Pre-compiled Windows binaries are available on the [Releases page](../../release
 Requires a C++17-compatible compiler (e.g. `g++` or `clang++`).
 
 ```bash
-g++ -std=c++17 -o b64 b64.cpp
+g++ -std=c++17 -o b64 main.cpp
 ```
 
 ---
