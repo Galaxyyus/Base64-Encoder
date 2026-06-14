@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
+#include <optional>
 
 const char BASE64_ENCODE[] = {
 	'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
@@ -46,11 +47,11 @@ const std::unordered_map<char, int> BASE64_DECODE = {
 	{'8', 60}, {'9', 61},
 
 	{'+', 62},
-	{'/', 63},
-	{'=', 0}
+	{'/', 63}
 };
 
 // Converts a vector of bytes to its corresponding base64 string
+// Returns std::nullopt if invalid string
 std::string base64_encode(const std::vector<std::uint8_t>& input) {
 	std::stringstream result;
 
@@ -63,8 +64,8 @@ std::string base64_encode(const std::vector<std::uint8_t>& input) {
 
 		std::uint32_t bytes = (a << 16) | (b << 8) | c;
 
-		for (int i = 3; i >= 0; i--) {
-			std::uint8_t bitset = (bytes >> (6 * i)) & 0b00111111; // Bit map to take least significant 6 bits
+		for (int j = 3; j >= 0; j--) {
+			std::uint8_t bitset = (bytes >> (6 * j)) & 0b00111111; // Bit map to take least significant 6 bits
 			result << BASE64_ENCODE[bitset];
 		}
 	}
@@ -82,15 +83,28 @@ std::string base64_encode(const std::vector<std::uint8_t>& input) {
 }
 
 // Convert a base64 string to its corresponding bytes and returns a vector
-std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
+std::optional<std::vector<std::uint8_t>> base64_decode(const std::string& b64_string) {
+	if (b64_string.size() % 4 != 0) return std::nullopt;
+
 	std::vector<uint8_t> result;
+
+	// Count padding before processing
+	int padding = 0;
+	if (b64_string.size() >= 1 && b64_string.back() == '=') padding++;
+	if (b64_string.size() >= 2 && b64_string[b64_string.size() - 2] == '=') padding++;
 
 	// Read 4 characters from the base64 string and convert to 3 corresponding decoded bytes
 	for (std::size_t i = 0; i < b64_string.size(); i += 4) {
 		// Read 4 6 bit bytes
 		std::uint32_t bytes = 0;
 		for (std::size_t j = 0; j < 4; j++) {
-			bytes = (bytes << 6) | (BASE64_DECODE.at(b64_string[i + j]) & 0b00111111); // Extract only 6 bits
+			if (i + j < b64_string.size() - padding) {
+				auto it = BASE64_DECODE.find(b64_string[i + j]);
+				if (it == BASE64_DECODE.end()) return std::nullopt; // If invalid character found then return std::nullopt
+				bytes = (bytes << 6) | (it->second & 0b00111111);
+			} else {
+				bytes <<= 6;
+			}
 		}
 
 		// Extract the real decoded bytes
@@ -100,13 +114,8 @@ std::vector<std::uint8_t> base64_decode(const std::string& b64_string) {
 		}
 	}
 
-	// Remove the last bytes depending on number of =
-	if (b64_string.substr(b64_string.size() - 2) == "==") {
-		result.pop_back();
-		result.pop_back();
-	} else if (b64_string.substr(b64_string.size() - 1) == "=") {
-		result.pop_back();
-	}
+	// Remove the last bytes depending on padding number
+	for (int i = 0; i < padding; i++) result.pop_back();
 
 	return result;
 }
@@ -120,8 +129,8 @@ int main(int argc, char* argv[]) {
 		std::cout << "\t-e, --encode\tEncode a string to its Base64 equivalent\n";
 		std::cout << "\t-d, --decode\tDecode a Base64 string to its ASCII equivalent\n";
 		std::cout << "\nFlags:\n";
-		std::cout << "\t-f <path>\tRead input from a file instead of a command-line string\n";
-		std::cout << "\t-o <path>\tWrite output to a file instead of stdout\n";
+		std::cout << "\t-f, --file <path>\tRead input from a file instead of a command-line string\n";
+		std::cout << "\t-o, --output <path>\tWrite output to a file instead of stdout\n";
 		std::cout << "\nExamples:\n";
 		std::cout << "\tb64.exe -e \"Hello World\"\n";
 		std::cout << "\tb64.exe -e -f input.png -o output.txt\n";
@@ -144,13 +153,13 @@ int main(int argc, char* argv[]) {
 	// Parse remaining flags
 	for (int i = 2; i < argc; i++) {
 		std::string arg = argv[i];
-		if (arg == "-f") {
+		if (arg == "-f" || arg == "--file") {
 			if (i + 1 >= argc) {
 				std::cout << "Error: -f requires a file path argument\n";
 				return 1;
 			}
 			input_file = argv[++i];
-		} else if (arg == "-o") {
+		} else if (arg == "-o" || arg == "--output") {
 			if (i + 1 >= argc) {
 				std::cout << "Error: -o requires a file path argument\n";
 				return 1;
@@ -217,9 +226,10 @@ int main(int argc, char* argv[]) {
 			std::cout << b64_string << '\n';
 		}
 
-		// Handle decode operations
-	} else {
-		std::string b64_string;
+	}
+	// Handle decode operations
+	else {
+		std::string b64_string = "";
 
 		// Read from input_file
 		if (!input_file.empty()) {
@@ -228,14 +238,21 @@ int main(int argc, char* argv[]) {
 				std::cout << "Error: could not open file: " << input_file << '\n';
 				return 1;
 			}
-			file >> b64_string;
+			std::string buffer;
+			while (file >> buffer) {
+				b64_string += buffer;
+			}
 		}
 		// Read from inline_input
 		else {
 			b64_string = inline_input;
 		}
 
-		std::vector<std::uint8_t> output_data = base64_decode(b64_string);
+		auto output_data = base64_decode(b64_string);
+		if (!output_data) {
+			std::cout << "Error invalid Base64 input!!! Aborting operation!";
+			return 1;
+		}
 
 		// Write to output_file
 		if (!output_file.empty()) {
@@ -244,11 +261,11 @@ int main(int argc, char* argv[]) {
 				std::cout << "Error: could not open output file: " << output_file << '\n';
 				return 1;
 			}
-			out.write(reinterpret_cast<char*>(output_data.data()), output_data.size());
+			out.write(reinterpret_cast<char*>(output_data->data()), output_data->size());
 		}
 		// Write to stdout
 		else {
-			std::cout.write(reinterpret_cast<char*>(output_data.data()), output_data.size());
+			std::cout.write(reinterpret_cast<char*>(output_data->data()), output_data->size());
 			std::cout << '\n';
 		}
 	}
