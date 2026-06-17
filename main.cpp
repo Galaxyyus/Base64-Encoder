@@ -50,74 +50,233 @@ const std::unordered_map<char, int> BASE64_DECODE = {
 	{'/', 63}
 };
 
-// Converts a vector of bytes to its corresponding base64 string
-// Returns std::nullopt if invalid string
-std::string base64_encode(const std::vector<std::uint8_t>& input) {
-	std::stringstream result;
+// This follows the modern RFC 4648 format which does not include line breaks in the output
+bool base64_encode(std::istream& in, std::ostream& out) {
+	const std::size_t CHUNK_SIZE = 3 * 1024; // Choosing 3kb to keep it a multiple of 3
+	std::vector<std::uint8_t> buffer(CHUNK_SIZE);
+	// Extra array to carry the leftover bits in case of incomplete reads
+	std::uint8_t leftover[2];
+	std::size_t leftover_count = 0;
 
-	// Extracts 3 bytes from input if available then convert to 4 base64 characters
-	std::size_t i = 0;
-	while (i < input.size()) {
-		std::uint32_t a = input[i++];
-		std::uint32_t b = (i < input.size()) ? input[i++] : 0;
-		std::uint32_t c = (i < input.size()) ? input[i++] : 0;
+	std::vector<char> out_buffer;
+	out_buffer.reserve(CHUNK_SIZE * 4 / 3 + 8);
 
-		std::uint32_t bytes = (a << 16) | (b << 8) | c;
+	while (true) {
+		// Copy the leftover bytes from last operation into the buffer first
+		for (int i = 0; i < leftover_count; i++) buffer[i] = leftover[i];
 
-		for (int j = 3; j >= 0; j--) {
-			std::uint8_t bitset = (bytes >> (6 * j)) & 0b00111111; // Bit map to take least significant 6 bits
-			result << BASE64_ENCODE[bitset];
+		// Read the next chunk of bytes
+		in.read(reinterpret_cast<char*>(buffer.data() + leftover_count), CHUNK_SIZE - leftover_count);
+
+		// Error checks
+		if (in.bad()) {
+			std::cerr << "Error: input stream encountered an I/O error!\n";
+			return false;
 		}
-	}
+		if (in.fail() && !in.eof()) {
+			std::cerr << "Error: input stream encounter an unknown error!\n";
+			return false;
+		}
 
-	std::string b64_string = result.str();
+		auto bytes_read = in.gcount();
+		if (bytes_read == 0) break; // Reached EOF
+		auto total_bytes = bytes_read + leftover_count;
+		leftover_count = 0;
 
-	// Remove the last characters and add = depending on input length
-	if (input.size() % 3 == 1) {
-		b64_string = b64_string.substr(0, b64_string.size() - 2) + "==";
-	} else if (input.size() % 3 == 2) {
-		b64_string = b64_string.substr(0, b64_string.size() - 1) + "=";
-	}
+		// Process the current buffer
+		// If the end of buffer is reached without 3 whole bytes to process then add those bytes to the
+		// leftover buffer to be processed in the next iteration or at the end
+		std::size_t i = 0;
+		std::vector<char> out_buffer;
+		out_buffer.reserve(CHUNK_SIZE * 4 / 3 + 8);
+		while (i + 2 < total_bytes) {
+			std::uint8_t a, b, c;
+			a = buffer[i++];
+			b = buffer[i++];
+			c = buffer[i++];
 
-	return b64_string;
-}
+			std::uint32_t bytes = (a << 16) | (b << 8) | c;
 
-// Convert a base64 string to its corresponding bytes and returns a vector
-std::optional<std::vector<std::uint8_t>> base64_decode(const std::string& b64_string) {
-	if (b64_string.size() % 4 != 0) return std::nullopt;
-
-	std::vector<uint8_t> result;
-
-	// Count padding before processing
-	int padding = 0;
-	if (b64_string.size() >= 1 && b64_string.back() == '=') padding++;
-	if (b64_string.size() >= 2 && b64_string[b64_string.size() - 2] == '=') padding++;
-
-	// Read 4 characters from the base64 string and convert to 3 corresponding decoded bytes
-	for (std::size_t i = 0; i < b64_string.size(); i += 4) {
-		// Read 4 6 bit bytes
-		std::uint32_t bytes = 0;
-		for (std::size_t j = 0; j < 4; j++) {
-			if (i + j < b64_string.size() - padding) {
-				auto it = BASE64_DECODE.find(b64_string[i + j]);
-				if (it == BASE64_DECODE.end()) return std::nullopt; // If invalid character found then return std::nullopt
-				bytes = (bytes << 6) | (it->second & 0b00111111);
-			} else {
-				bytes <<= 6;
+			for (int j = 3; j >= 0; j--) {
+				// Only take the least significant 6 bits out of the 8 bits for encoding
+				std::uint8_t bitset = (bytes >> (6 * j)) & 0b00111111;
+				out_buffer.push_back(BASE64_ENCODE[bitset]);
 			}
 		}
 
-		// Extract the real decoded bytes
-		for (int j = 2; j >= 0; j--) {
-			uint8_t bitset = (bytes >> (8 * j)) & 0b11111111;
-			result.push_back(bitset);
+		while (i < total_bytes) {
+			leftover[leftover_count++] = buffer[i++];
+		}
+
+		out.write(out_buffer.data(), out_buffer.size());
+		out.clear();
+	}
+
+	// If some bytes were not process at the end of the encoding
+	if (leftover_count > 0) {
+		// Process those bytes
+		std::uint32_t bytes = (leftover[0] << 16) | (leftover[1] << 8);
+		if (leftover_count == 1) {
+			out.put(BASE64_ENCODE[(bytes >> (18)) & 0b00111111]);
+			out.put(BASE64_ENCODE[(bytes >> (12)) & 0b00111111]);
+		} else if (leftover_count == 2) {
+			out.put(BASE64_ENCODE[(bytes >> 18) & 0b00111111]);
+			out.put(BASE64_ENCODE[(bytes >> 12) & 0b00111111]);
+			out.put(BASE64_ENCODE[(bytes >> 6) & 0b00111111]);
+		}
+		// Pad the remaining bytes with '='
+		for (int i = 3; i > leftover_count; i--) {
+			out.put('=');
 		}
 	}
 
-	// Remove the last bytes depending on padding number
-	for (int i = 0; i < padding; i++) result.pop_back();
+	if (!out) {
+		std::cerr << "Error: output stream encountered an error!\n";
+		return false;
+	}
 
-	return result;
+	// No errors encountered
+	return true;
+}
+
+// This follows the modern RFC 4648 format which does not expect line breaks in the input
+bool base64_decode(std::istream& in, std::ostream& out) {
+	// Initial file length measurement
+	in.seekg(0, std::ios::end);
+	if (in.tellg() % 4 != 0) {
+		std::cerr << "Error: Base64 string length is not a multiple of 4!\n";
+		return false;
+	}
+	in.seekg(0);
+
+	// Choosing 4kb as it is divisble by and nice
+	const std::size_t CHUNK_SIZE = 4 * 1024;
+	std::vector<char> buffer(CHUNK_SIZE);
+	// Extra array to carry the leftover bits in case of incomplete reads
+	char leftover[3];
+	std::size_t leftover_count = 0;
+
+	bool padding_seen = false;
+
+	std::vector<char> out_buffer;
+	out_buffer.reserve(CHUNK_SIZE * 3 / 4 + 8);
+
+	while (true) {
+		// Copy the leftover bytes from last operation into the buffer first
+		for (std::size_t i = 0; i < leftover_count; i++) buffer[i] = leftover[i];
+
+		// Read the next chunk of bytes
+		in.read(buffer.data() + leftover_count, CHUNK_SIZE - leftover_count);
+		std::streamsize bytes_read = in.gcount();
+
+		// Error checks
+		if (in.bad()) {
+			std::cerr << "Error: input stream encountered an I/O error!\n";
+			return false;
+		}
+		if (in.fail() && !in.eof()) {
+			std::cerr << "Error: input stream encountered an unknown error!\n";
+			return false;
+		}
+
+
+		if (bytes_read == 0) break; // Reached EOF
+		auto total_bytes = bytes_read + leftover_count;
+		leftover_count = 0;
+
+
+		// Process the current buffer
+		// If the end of buffer is reached without 4 whole chars to process then add those chars to the
+		// leftover buffer to be processed in the next iteration or at the end
+		std::size_t i = 0;
+		std::vector<char> out_buffer;
+		out_buffer.reserve(CHUNK_SIZE * 3 / 4 + 8);
+		while (i + 4 <= total_bytes) {
+			char a = buffer[i++];
+			char b = buffer[i++];
+			char c = buffer[i++];
+			char d = buffer[i++];
+
+			// Check for padding '='
+			int padding = 0;
+			if (c == '=') {
+				padding++;
+				if (d != '=') {
+					std::cerr << "Error: data found after padding!\n";
+					return false;
+				}
+			}
+			if (d == '=') padding++;
+			// Check if the '=' are correct
+			if (padding_seen && padding == 0) {
+				std::cerr << "Error: data found after padding!\n";
+				return false;
+			}
+			if (padding > 0) {
+				padding_seen = true;
+			}
+
+			std::uint32_t bytes = 0;
+			auto decode_char = [&](char x) -> std::optional<std::uint32_t> {
+				if (x == '=') {
+					return 0;
+				}
+
+				auto it = BASE64_DECODE.find(x);
+				if (it == BASE64_DECODE.end()) {
+					return std::nullopt;
+				}
+
+				return it->second;
+				};
+
+			auto v0 = decode_char(a);
+			auto v1 = decode_char(b);
+			auto v2 = decode_char(c);
+			auto v3 = decode_char(d);
+
+			if (!v0 || !v1 || !v2 || !v3) {
+				std::cerr << "Error: invalid Base64 character!\n";
+				return false;
+			}
+
+			bytes =
+				(*v0 << 18) |
+				(*v1 << 12) |
+				(*v2 << 6) |
+				(*v3);
+
+			out_buffer.push_back((bytes >> 16) & 0b11111111);
+
+			// Deal with the padding bytes
+			if (padding < 2) {
+				out_buffer.push_back((bytes >> 8) & 0xFF);
+			}
+			if (padding < 1) {
+				out_buffer.push_back(bytes & 0xFF);
+			}
+		}
+
+		while (i < total_bytes) {
+			leftover[leftover_count++] = buffer[i++];
+		}
+
+		// Empty the buffer into the stream
+		out.write(out_buffer.data(), out_buffer.size());
+		out_buffer.clear();
+	}
+
+	// Closing error checks
+	if (leftover_count != 0) {
+		std::cerr << "Error: Base64 string length is not a multiple of 4!\n";
+		return false;
+	}
+	if (!out) {
+		std::cerr << "Error: output stream encountered an error!\n";
+		return false;
+	}
+
+	return true;
 }
 
 int main(int argc, char* argv[]) {
@@ -134,7 +293,7 @@ int main(int argc, char* argv[]) {
 		std::cout << "\nExamples:\n";
 		std::cout << "\tb64.exe -e \"Hello World\"\n";
 		std::cout << "\tb64.exe -e -f input.png -o output.txt\n";
-		std::cout << "\tb64.exe -d SGVsbG8gV29ybGQ=\n -o output.txt";
+		std::cout << "\tb64.exe -d SGVsbG8gV29ybGQ= -o output.txt";
 		std::cout << "\tb64.exe -d -f encoded.txt\n";
 		return 0;
 	}
@@ -145,7 +304,6 @@ int main(int argc, char* argv[]) {
 		std::cout << "Unknown option: " << option << '\n';
 		return 1;
 	}
-
 	bool is_encode = (option == "-e" || option == "--encode");
 
 	std::string input_file, output_file, inline_input;
@@ -189,84 +347,115 @@ int main(int argc, char* argv[]) {
 
 	// Handle encode operations
 	if (is_encode) {
-		std::vector<std::uint8_t> input;
 
-		// Read from input_file
+		// File input -> stream encoder
 		if (!input_file.empty()) {
-			std::ifstream file(input_file, std::ios::binary | std::ios::ate);
-			if (!file) { // Could not open file
-				std::cout << "Error: could not open file: " << input_file << '\n';
+			std::ifstream input(input_file, std::ios::binary);
+			if (!input) {
+				std::cerr << "Error: could not open file: " << input_file << '\n';
 				return 1;
 			}
 
-			// Create a vector and read from file
-			std::fstream::pos_type file_length = file.tellg();
-			input.resize(file_length);
-			file.seekg(0);
-			file.read(reinterpret_cast<char*>(input.data()), file_length);
-		}
-		// Read from inline_input
-		else {
-			input.assign(inline_input.begin(), inline_input.end());
-		}
+			if (!output_file.empty()) {
+				std::ofstream output(output_file, std::ios::trunc);
+				if (!output) {
+					std::cerr << "Error: could not open output file: " << output_file << '\n';
+					return 1;
+				}
 
-		std::string b64_string = base64_encode(input);
-
-		// Write to output_file
-		if (!output_file.empty()) {
-			std::ofstream out(output_file, std::ios::trunc);
-			if (!out) {
-				std::cout << "Error: could not open output file: " << output_file << '\n';
-				return 1;
+				if (!base64_encode(input, output)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+			} else {
+				if (!base64_encode(input, std::cout)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+				std::cout << '\n';
 			}
-			out << b64_string;
-		}
-		// Write to stdout
-		else {
-			std::cout << b64_string << '\n';
 		}
 
+		// Inline input -> normal encoder
+		else {
+			std::istringstream input(inline_input);
+
+			if (!output_file.empty()) {
+				std::ofstream output(output_file, std::ios::trunc);
+				if (!output) {
+					std::cerr << "Error: could not open output file: " << output_file << '\n';
+					return 1;
+				}
+
+
+				if (!base64_encode(input, output)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+			} else {
+				if (!base64_encode(input, std::cout)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+				std::cout << '\n';
+			}
+		}
 	}
+
 	// Handle decode operations
 	else {
-		std::string b64_string = "";
 
-		// Read from input_file
+		// File input -> stream decoder
 		if (!input_file.empty()) {
-			std::ifstream file(input_file);
-			if (!file) {
-				std::cout << "Error: could not open file: " << input_file << '\n';
+			std::ifstream input(input_file);
+			if (!input) {
+				std::cerr << "Error: could not open file: "
+					<< input_file << '\n';
 				return 1;
 			}
-			std::string buffer;
-			while (file >> buffer) {
-				b64_string += buffer;
+
+			if (!output_file.empty()) {
+				std::ofstream output(output_file, std::ios::binary);
+				if (!output) {
+					std::cout << "Error: could not open output file: " << output_file << '\n';
+					return 1;
+				}
+
+				if (!base64_decode(input, output)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+			} else {
+				if (!base64_decode(input, std::cout)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+				std::cout << '\n';
 			}
 		}
-		// Read from inline_input
+
+		// Inline input -> normal decoder
 		else {
-			b64_string = inline_input;
-		}
+			std::istringstream input(inline_input);
 
-		auto output_data = base64_decode(b64_string);
-		if (!output_data) {
-			std::cout << "Error invalid Base64 input!!! Aborting operation!";
-			return 1;
-		}
+			if (!output_file.empty()) {
+				std::ofstream output(output_file, std::ios::binary);
+				if (!output) {
+					std::cerr << "Error: could not open output file: " << output_file << '\n';
+					return 1;
+				}
 
-		// Write to output_file
-		if (!output_file.empty()) {
-			std::ofstream out(output_file, std::ios::binary);
-			if (!out) {
-				std::cout << "Error: could not open output file: " << output_file << '\n';
-				return 1;
+				if (!base64_decode(input, output)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+			} else {
+				if (!base64_decode(input, std::cout)) {
+					std::cout << "Aborting, operation failed!!!\n";
+					return 1;
+				}
+				std::cout << '\n';
 			}
-			out.write(reinterpret_cast<char*>(output_data->data()), output_data->size());
-		}
-		// Write to stdout
-		else {
-			std::cout.write(reinterpret_cast<char*>(output_data->data()), output_data->size());
-			std::cout << '\n';
 		}
 	}
 
