@@ -198,11 +198,15 @@ bool base64_decode(std::istream& in, std::ostream& out) {
 			char d = buffer[i++];
 
 			// Check for padding '='
+			if (a == '=' or b == '=') {
+				std::cerr << "Error: '=' found at unexpected postion!\n";
+				return false;
+			}
 			int padding = 0;
 			if (c == '=') {
 				padding++;
 				if (d != '=') {
-					std::cerr << "Error: data found after padding!\n";
+					std::cerr << "Error: '=' found at unexpected postion!\n";
 					return false;
 				}
 			}
